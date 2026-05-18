@@ -28,6 +28,15 @@ API_EXPORT mk_pusher API_CALL mk_pusher_create_src(mk_media_source ctx){
     return (mk_pusher)obj;
 }
 
+API_EXPORT mk_pusher API_CALL mk_pusher_create_onvif(mk_media_source ctx){
+    assert(ctx);
+    MediaSource *src = (MediaSource *)ctx;
+    auto *pusher = new MediaPusher(src->shared_from_this());
+    pusher->setOnvifMode(true);
+    MediaPusher::Ptr *obj = new MediaPusher::Ptr(pusher);
+    return (mk_pusher)obj;
+}
+
 API_EXPORT void API_CALL mk_pusher_release(mk_pusher ctx){
     assert(ctx);
     MediaPusher::Ptr *obj = (MediaPusher::Ptr *)ctx;

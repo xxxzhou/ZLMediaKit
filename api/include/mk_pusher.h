@@ -77,6 +77,22 @@ API_EXPORT mk_pusher API_CALL mk_pusher_create(const char *schema,const char *vh
 API_EXPORT mk_pusher API_CALL mk_pusher_create_src(mk_media_source src);
 
 /**
+ * 绑定的MediaSource对象并创建ONVIF Backchannel推流器
+ * ONVIF Backchannel使用播放器流程：DESCRIBE → SETUP → PLAY
+ * 适用于向支持ONVIF Backchannel的摄像头推送音频数据
+ *
+ * @param src MediaSource对象
+ * @return 对象指针
+ * Bind the MediaSource object and create an ONVIF Backchannel pusher
+ * ONVIF Backchannel uses player flow: DESCRIBE → SETUP → PLAY
+ * Suitable for pushing audio data to cameras that support ONVIF Backchannel
+ *
+ * @param src MediaSource object
+ * @return Object pointer
+ */
+API_EXPORT mk_pusher API_CALL mk_pusher_create_onvif(mk_media_source src);
+
+/**
  * 释放推流器
  * @param ctx 推流器指针
  * Release the pusher

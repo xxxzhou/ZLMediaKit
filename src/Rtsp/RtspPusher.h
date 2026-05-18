@@ -18,6 +18,7 @@
 #include "Network/Socket.h"
 #include "Network/TcpClient.h"
 #include "RtspSplitter.h"
+#include "RtspPlayer.h"
 #include "Pusher/PusherBase.h"
 #include "Rtcp/RtcpContext.h"
 
@@ -107,6 +108,89 @@ private:
 };
 
 using RtspPusherImp = PusherImp<RtspPusher, PusherBase>;
+
+// ONVIF Backchannel 推流器，使用播放器流程：DESCRIBE → SETUP → PLAY
+class RtspPusherOnvif : public RtspPlayer, public PusherBase {
+public:
+    using Ptr = std::shared_ptr<RtspPusherOnvif>;
+    RtspPusherOnvif(const toolkit::EventPoller::Ptr &poller, const RtspMediaSource::Ptr &src);
+    ~RtspPusherOnvif() override;
+    void publish(const std::string &url) override;
+    void teardown() override;
+
+    // PusherBase 接口
+    void setOnPublished(const PusherBase::Event &cb) override { _on_publish = cb; }
+    void setOnShutdown(const PusherBase::Event &cb) override { _on_shutdown = cb; }
+
+    // PlayerBase 接口（部分需要覆盖）
+    void setMediaSource(const MediaSource::Ptr &src) override { _media_src = src; }
+    void setOnPlayResult(const std::function<void(const toolkit::SockException &)> &cb) override { _on_play_result = cb; }
+    void setOnResume(const std::function<void()> &cb) override { _on_resume = cb; }
+
+protected:
+    bool onCheckSDP(const std::string &sdp) override;
+    void onRecvRTP(RtpPacket::Ptr rtp, const SdpTrack::Ptr &track) override;
+
+    // 覆盖 PlayerBase 的播放结果回调
+    void onPlayResult(const toolkit::SockException &ex) override {
+        if (_on_publish) {
+            _on_publish(ex);
+            _on_publish = nullptr;
+        }
+        if (_on_play_result) {
+            _on_play_result(ex);
+        }
+        if (!ex) {
+            onPlaySuccess();
+        }
+    }
+
+    // 覆盖 PlayerBase 和 PusherBase 的异常断开回调
+    void onShutdown(const toolkit::SockException &ex) override {
+        if (_on_shutdown) {
+            _on_shutdown(ex);
+            _on_shutdown = nullptr;
+        }
+    }
+
+    // 覆盖 PlayerBase 的恢复回调
+    void onResume() override {
+        if (_on_resume) {
+            _on_resume();
+        }
+    }
+
+    // 覆盖 PusherBase 的推流结果回调
+    void onPublishResult(const toolkit::SockException &ex) override {
+        if (_on_publish) {
+            _on_publish(ex);
+            _on_publish = nullptr;
+        }
+    }
+
+private:
+    void onPlaySuccess();
+    void sendRtpPacket(const RtspMediaSource::RingDataType &pkt);
+    void updateRtcpContext(const RtpPacket::Ptr &rtp);
+    int getTrackIndexByTrackType(TrackType type) const;
+
+private:
+    std::weak_ptr<RtspMediaSource> _push_src;
+    RtspMediaSource::RingType::RingReader::Ptr _rtsp_reader;
+    std::vector<RtcpContext::Ptr> _rtcp_context;
+    toolkit::Ticker _rtcp_send_ticker[2];
+    PusherBase::Event _on_publish;
+    PusherBase::Event _on_shutdown;
+    std::function<void(const toolkit::SockException &)> _on_play_result;
+    std::function<void()> _on_resume;
+    MediaSource::Ptr _media_src;
+    std::string _keepalive_url;
+    uint32_t _keepalive_cseq = 0;
+};
+
+// 工厂函数：创建 ONVIF Backchannel 推流器
+PusherBase::Ptr createPusherOnvif(const toolkit::EventPoller::Ptr &poller,
+                                  const RtspMediaSource::Ptr &src);
 
 } /* namespace mediakit */
 #endif //ZLMEDIAKIT_RTSPPUSHER_H

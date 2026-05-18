@@ -161,10 +161,9 @@ private:
     // rtsp开始倍速  [AUTO-TRANSLATED:9ab84508]
     // Rtsp start speed
     float _speed = 0.0f;
-    std::vector<SdpTrack::Ptr> _sdp_track;
     std::function<void(const Parser&)> _on_response;
     std::function<void(const Parser&)> _on_keepalive_reponse;
- protected:   
+ protected:
     // RTP端口,trackid idx 为数组下标  [AUTO-TRANSLATED:77c186bb]
     // RTP port, trackid idx is the array subscript
     toolkit::Socket::Ptr _rtp_sock[2];
@@ -187,8 +186,10 @@ private:
     std::string _range_start_str;  // 新增：保存 clock 格式的起始时间
     std::string _range_end_str;    // 新增：保存 clock 格式的结束时间
 
-protected:   
+protected:
     Rtsp::eRtpType _rtp_type = Rtsp::RTP_TCP;
+    bool _bOnvifBackchannel = false;
+    std::vector<SdpTrack::Ptr> _sdp_track;
 
 private:
     // 起始时间戳

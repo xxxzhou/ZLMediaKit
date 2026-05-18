@@ -241,6 +241,11 @@ void RtspPlayer::handleResDESCRIBE(const Parser &parser) {
         _sdp_track.emplace_back(track);
         auto title_track = sdpParser.getTrack(TrackTitle);
         sdp = (title_track ? title_track->toString() : "") + track->toString();
+    } else if (_bOnvifBackchannel) {
+        // ONVIF Backchannel: 需要获取所有 track（包括 Backchannel）
+        // getAvailableTrack() 只返回每种类型的第一个 track，会过滤掉 Backchannel
+        _sdp_track = sdpParser.getAllTracks();
+        sdp = sdpParser.toString();
     } else {
         _sdp_track = sdpParser.getAvailableTrack();
         sdp = sdpParser.toString();
@@ -439,10 +444,12 @@ void RtspPlayer::handleResSETUP(const Parser &parser, unsigned int track_idx) {
 }
 
 void RtspPlayer::sendDescribe() {
-    // 发送DESCRIBE命令后处理函数:handleResDESCRIBE  [AUTO-TRANSLATED:3c2b0ffe]
-    // Handle the response to the DESCRIBE command: handleResDESCRIBE
     _on_response = std::bind(&RtspPlayer::handleResDESCRIBE, this, placeholders::_1);
-    sendRtspRequest("DESCRIBE", _play_url, { "Accept", "application/sdp" });
+    if (_bOnvifBackchannel) {
+        sendRtspRequest("DESCRIBE", _play_url, { "Accept", "application/sdp", "Require", "www.onvif.org/ver20/backchannel" });
+    } else {
+        sendRtspRequest("DESCRIBE", _play_url, { "Accept", "application/sdp" });
+    }
 }
 
 void RtspPlayer::sendOptions() {
@@ -862,25 +869,28 @@ void RtspPlayer::onPlayResult_l(const SockException &ex, bool handshake_done) {
     if (!ex) {
         // 播放成功，恢复rtp接收超时定时器  [AUTO-TRANSLATED:0ebefcb5]
         // Playback successful, restore RTP receive timeout timer
-        _rtp_recv_ticker.resetTime();
-        auto timeoutMS = (*this)[Client::kMediaTimeoutMS].as<uint64_t>();
-        weak_ptr<RtspPlayer> weakSelf = static_pointer_cast<RtspPlayer>(shared_from_this());
-        auto lam = [weakSelf, timeoutMS]() {
-            auto strongSelf = weakSelf.lock();
-            if (!strongSelf) {
-                return false;
-            }
-            if (strongSelf->_rtp_recv_ticker.elapsedTime() > timeoutMS) {
-                // 接收rtp媒体数据包超时  [AUTO-TRANSLATED:601b8c0c]
-                // Receive RTP media data packet timeout
-                strongSelf->onPlayResult_l(SockException(Err_timeout, "receive rtp timeout"), true);
-                return false;
-            }
-            return true;
-        };
-        // 创建rtp数据接收超时检测定时器  [AUTO-TRANSLATED:edbffc19]
-        // Create RTP data receive timeout detection timer
-        _rtp_check_timer = std::make_shared<Timer>(timeoutMS / 2000.0f, std::move(lam), getPoller());
+        // ONVIF Backchannel 不需要接收 RTP 超时检查，因为是推流模式
+        if (!_bOnvifBackchannel) {
+            _rtp_recv_ticker.resetTime();
+            auto timeoutMS = (*this)[Client::kMediaTimeoutMS].as<uint64_t>();
+            weak_ptr<RtspPlayer> weakSelf = static_pointer_cast<RtspPlayer>(shared_from_this());
+            auto lam = [weakSelf, timeoutMS]() {
+                auto strongSelf = weakSelf.lock();
+                if (!strongSelf) {
+                    return false;
+                }
+                if (strongSelf->_rtp_recv_ticker.elapsedTime() > timeoutMS) {
+                    // 接收rtp媒体数据包超时  [AUTO-TRANSLATED:601b8c0c]
+                    // Receive RTP media data packet timeout
+                    strongSelf->onPlayResult_l(SockException(Err_timeout, "receive rtp timeout"), true);
+                    return false;
+                }
+                return true;
+            };
+            // 创建rtp数据接收超时检测定时器  [AUTO-TRANSLATED:edbffc19]
+            // Create RTP data receive timeout detection timer
+            _rtp_check_timer = std::make_shared<Timer>(timeoutMS / 2000.0f, std::move(lam), getPoller());
+        }
     } else {
         sendTeardown();
     }

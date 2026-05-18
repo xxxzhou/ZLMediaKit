@@ -36,11 +36,15 @@ public:
     std::shared_ptr<MediaSource> getSrc() { return _src.lock(); }
     const std::string& getUrl() const { return _url; }
 
+    // 设置为 ONVIF Backchannel 模式
+    void setOnvifMode(bool onvif);
+
 private:
     std::weak_ptr<MediaSource> _src;
     toolkit::EventPoller::Ptr _poller;
     toolkit::Socket::onCreateSocket _on_create_socket;
     std::string _url;
+    bool _bOnvifMode = false;
 };
 
 } /* namespace mediakit */

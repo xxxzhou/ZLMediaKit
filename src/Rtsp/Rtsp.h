@@ -278,6 +278,7 @@ public:
     bool available() const;
     SdpTrack::Ptr getTrack(TrackType type) const;
     std::vector<SdpTrack::Ptr> getAvailableTrack() const;
+    std::vector<SdpTrack::Ptr> getAllTracks() const { return _track_vec; }
     std::string toString() const;
     std::string getControlUrl(const std::string &url) const;
 

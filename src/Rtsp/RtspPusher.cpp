@@ -626,3 +626,246 @@ size_t RtspPusher::getSendTotalBytes() {
     return ret;
 }
 } /* namespace mediakit */
+
+//////////////////////////////////////////////////////////////////////////
+// RtspPusherOnvif - ONVIF Backchannel 推流器
+// 使用播放器流程：DESCRIBE → SETUP → PLAY
+//////////////////////////////////////////////////////////////////////////
+
+namespace mediakit {
+
+RtspPusherOnvif::RtspPusherOnvif(const EventPoller::Ptr &poller, const RtspMediaSource::Ptr &src)
+    : RtspPlayer(poller) {
+    _bOnvifBackchannel = true;
+    _push_src = src;
+}
+
+RtspPusherOnvif::~RtspPusherOnvif() {
+    teardown();
+}
+
+void RtspPusherOnvif::publish(const string &url_str) {
+    _keepalive_url = url_str;
+    RtspUrl url;
+    try {
+        url.parse(url_str);
+    } catch (std::exception &ex) {
+        onPublishResult(SockException(Err_other, StrPrinter << "illegal rtsp url:" << ex.what()));
+        return;
+    }
+    if (url._user.size()) {
+        (*this)[Client::kRtspUser] = url._user;
+    }
+    if (url._passwd.size()) {
+        (*this)[Client::kRtspPwd] = url._passwd;
+        (*this)[Client::kRtspPwdIsMD5] = false;
+    }
+    play(url_str);
+}
+
+void RtspPusherOnvif::teardown() {
+    RtspPlayer::teardown();
+    _rtsp_reader.reset();
+    _rtcp_context.clear();
+}
+
+bool RtspPusherOnvif::onCheckSDP(const std::string &sdp) {
+    // ONVIF Backchannel: 过滤掉 recvonly 的 track，只保留 sendonly 的
+    // 这样会选择 trackID=5 (sendonly) 而不是 trackID=1 (recvonly)
+    std::vector<SdpTrack::Ptr> sendonly_tracks;
+    std::vector<SdpTrack::Ptr> audio_tracks;
+
+    for (auto &track : _sdp_track) {
+        // 跳过非音频/视频 track（如 TrackTitle）
+        if (track->_type != TrackAudio && track->_type != TrackVideo) {
+            continue;
+        }
+
+        // 打印所有属性用于调试
+        std::string attrs_str;
+        for (auto &attr : track->_attr) {
+            attrs_str += attr.first + "=" + attr.second + "; ";
+        }
+        InfoL << "ONVIF Backchannel: track " << track->_control << " type=" << track->_type << " attrs: [" << attrs_str << "]";
+
+        // 收集所有音频 track
+        if (track->_type == TrackAudio) {
+            audio_tracks.emplace_back(track);
+        }
+
+        // 检查是否有 sendonly 属性
+        auto it = track->_attr.find("sendonly");
+        if (it != track->_attr.end()) {
+            sendonly_tracks.emplace_back(track);
+            InfoL << "ONVIF Backchannel: found sendonly track: " << track->_control;
+        }
+    }
+
+    if (!sendonly_tracks.empty()) {
+        // 找到 sendonly track，使用它
+        _sdp_track = std::move(sendonly_tracks);
+    } else if (audio_tracks.size() > 1) {
+        // 没有 sendonly 属性但有多个音频 track，选择最后一个（通常是 Backchannel）
+        // ONVIF Backchannel 通常是 trackID=5，排在 trackID=1 (recvonly) 后面
+        _sdp_track.clear();
+        _sdp_track.emplace_back(audio_tracks.back());
+        WarnL << "ONVIF Backchannel: no sendonly found, using last audio track: " << audio_tracks.back()->_control;
+    } else {
+        // 无法确定 Backchannel，使用所有 track
+        WarnL << "ONVIF Backchannel: no sendonly track found, cannot determine backchannel";
+    }
+
+    _rtcp_context.clear();
+    for (auto &track : _sdp_track) {
+        _rtcp_context.emplace_back(std::make_shared<RtcpContextForSend>());
+    }
+    return true;
+}
+
+void RtspPusherOnvif::onRecvRTP(RtpPacket::Ptr rtp, const SdpTrack::Ptr &track) {
+    // ONVIF Backchannel 不接收 RTP，只发送
+}
+
+void RtspPusherOnvif::onPlaySuccess() {
+    auto src = _push_src.lock();
+    if (!src) {
+        onShutdown(SockException(Err_other, "media source released"));
+        return;
+    }
+    // 调试日志：检查 socket 状态
+    InfoL << "ONVIF Backchannel: onPlaySuccess, _rtp_type=" << _rtp_type
+          << ", _rtp_sock[0]=" << (_rtp_sock[0] ? std::to_string(_rtp_sock[0]->get_local_port()) : "null")
+          << ", _rtp_sock[1]=" << (_rtp_sock[1] ? std::to_string(_rtp_sock[1]->get_local_port()) : "null")
+          << ", _rtcp_sock[0]=" << (_rtcp_sock[0] ? std::to_string(_rtcp_sock[0]->get_local_port()) : "null");
+    src->pause(false);
+    _rtsp_reader = src->getRing()->attach(getPoller());
+    weak_ptr<RtspPusherOnvif> weak_self = dynamic_pointer_cast<RtspPusherOnvif>(shared_from_this());
+    _rtsp_reader->setReadCB([weak_self](const RtspMediaSource::RingDataType &pkt) {
+        auto strong_self = weak_self.lock();
+        if (!strong_self) {
+            return;
+        }
+        strong_self->sendRtpPacket(pkt);
+    });
+    _rtsp_reader->setDetachCB([weak_self]() {
+        auto strong_self = weak_self.lock();
+        if (strong_self) {
+            strong_self->onShutdown(SockException(Err_other, "media source released"));
+        }
+    });
+}
+
+void RtspPusherOnvif::sendRtpPacket(const RtspMediaSource::RingDataType &pkt) {
+    switch (_rtp_type) {
+        case Rtsp::RTP_TCP: {
+            size_t i = 0;
+            auto size = pkt->size();
+            setSendFlushFlag(false);
+            pkt->for_each([&](const RtpPacket::Ptr &rtp) {
+                updateRtcpContext(rtp);
+                if (++i == size) {
+                    setSendFlushFlag(true);
+                }
+                // 使用 SETUP 响应中服务器返回的 interleaved channel
+                int track_index = getTrackIndexByTrackType(rtp->type);
+                auto &track = _sdp_track[track_index];
+                // 发送 TCP prefix（$ + channel + length）
+                send(makeRtpOverTcpPrefix((uint16_t)(rtp->size() - RtpPacket::kRtpTcpHeaderSize), track->_interleaved));
+                // 发送 RTP 数据（跳过前 4 字节的旧 header）
+                send(std::make_shared<BufferRtp>(rtp, RtpPacket::kRtpTcpHeaderSize));
+            });
+            break;
+        }
+        case Rtsp::RTP_UDP: {
+            pkt->for_each([&](const RtpPacket::Ptr &rtp) {
+                updateRtcpContext(rtp);
+                int iTrackIndex = getTrackIndexByTrackType(rtp->type);
+                auto &pSock = _rtp_sock[iTrackIndex];
+                if (!pSock) {
+                    WarnL << "ONVIF Backchannel: _rtp_sock[" << iTrackIndex << "] is null, rtp_type=" << _rtp_type;
+                    shutdown(SockException(Err_shutdown, "udp sock not opened yet"));
+                    return;
+                }
+                static bool s_logged_port = false;
+                if (!s_logged_port) {
+                    s_logged_port = true;
+                    InfoL << "ONVIF Backchannel: sending RTP from local port " << pSock->get_local_port()
+                          << " to server port, track_index=" << iTrackIndex;
+                }
+                pSock->send(std::make_shared<BufferRtp>(rtp, RtpPacket::kRtpTcpHeaderSize), nullptr, 0);
+            });
+            break;
+        }
+        default:
+            WarnL << "ONVIF Backchannel: unknown rtp_type=" << _rtp_type;
+            break;
+    }
+}
+
+void RtspPusherOnvif::updateRtcpContext(const RtpPacket::Ptr &rtp) {
+    int track_index = getTrackIndexByTrackType(rtp->type);
+    auto &ticker = _rtcp_send_ticker[track_index];
+    auto &rtcp_ctx = _rtcp_context[track_index];
+    rtcp_ctx->onRtp(rtp->getSeq(), rtp->getStamp(), rtp->ntp_stamp, rtp->sample_rate, rtp->size() - RtpPacket::kRtpTcpHeaderSize);
+
+    // 每 30 秒发送一次 RTSP OPTIONS 保活命令，防止 session 超时
+    static int keepalive_interval_ms = 30 * 1000;
+    if (ticker.elapsedTime() > keepalive_interval_ms) {
+        ticker.resetTime();
+
+        // 发送 RTSP OPTIONS 保活命令（直接构造并发送）
+        _StrPrinter printer;
+        printer << "OPTIONS " << _keepalive_url << " RTSP/1.0\r\n";
+        printer << "CSeq: " << ++_keepalive_cseq << "\r\n";
+        printer << "User-Agent: " << kServerName << "\r\n";
+        printer << "\r\n";
+        send(std::move(printer));
+
+        // 发送 RTCP SR
+        static auto send_rtcp = [](RtspPusherOnvif *thiz, int index, Buffer::Ptr ptr) {
+            if (thiz->_rtp_type == Rtsp::RTP_TCP) {
+                auto &track = thiz->_sdp_track[index];
+                thiz->send(makeRtpOverTcpPrefix((uint16_t)(ptr->size()), track->_interleaved + 1));
+                thiz->send(std::move(ptr));
+            } else {
+                thiz->_rtcp_sock[index]->send(std::move(ptr));
+            }
+        };
+        auto ssrc = rtp->getSSRC();
+        auto rtcp = rtcp_ctx->createRtcpSR(ssrc + 1);
+        auto rtcp_sdes = RtcpSdes::create({kServerName});
+        rtcp_sdes->chunks.type = (uint8_t)SdesType::RTCP_SDES_CNAME;
+        rtcp_sdes->chunks.ssrc = htonl(ssrc);
+        send_rtcp(this, track_index, std::move(rtcp));
+        send_rtcp(this, track_index, RtcpHeader::toBuffer(rtcp_sdes));
+    }
+}
+
+int RtspPusherOnvif::getTrackIndexByTrackType(TrackType type) const {
+    for (size_t i = 0; i < _sdp_track.size(); ++i) {
+        if (type == _sdp_track[i]->_type) {
+            return i;
+        }
+    }
+    if (_sdp_track.size() == 1) {
+        return 0;
+    }
+    throw SockException(Err_shutdown, StrPrinter << "no such track with type:" << getTrackString(type));
+}
+
+PusherBase::Ptr createPusherOnvif(const EventPoller::Ptr &poller, const RtspMediaSource::Ptr &src) {
+    auto weak_poller = std::weak_ptr<EventPoller>(poller);
+    auto release_func = [weak_poller](PusherBase *ptr) {
+        if (auto p = weak_poller.lock()) {
+            p->async([ptr]() {
+                onceToken token(nullptr, [&]() { delete ptr; });
+                ptr->teardown();
+            });
+        } else {
+            delete ptr;
+        }
+    };
+    return PusherBase::Ptr(new RtspPusherOnvif(poller, src), release_func);
+}
+
+} /* namespace mediakit */

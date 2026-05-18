@@ -11,6 +11,7 @@
 #include <algorithm>
 #include "MediaPusher.h"
 #include "PusherBase.h"
+#include "Rtsp/RtspPusher.h"
 
 using namespace std;
 using namespace toolkit;
@@ -39,7 +40,12 @@ static void setOnCreateSocket_l(const std::shared_ptr<PusherBase> &delegate, con
 }
 
 void MediaPusher::publish(const string &url) {
-    _delegate = PusherBase::createPusher(_poller, _src.lock(), url);
+    if (_bOnvifMode) {
+        auto rtsp_src = std::dynamic_pointer_cast<RtspMediaSource>(_src.lock());
+        _delegate = createPusherOnvif(_poller, rtsp_src);
+    } else {
+        _delegate = PusherBase::createPusher(_poller, _src.lock(), url);
+    }
     assert(_delegate);
     setOnCreateSocket_l(_delegate, _on_create_socket);
     _delegate->setOnShutdown(_on_shutdown);
@@ -56,6 +62,10 @@ EventPoller::Ptr MediaPusher::getPoller(){
 void MediaPusher::setOnCreateSocket(Socket::onCreateSocket cb){
     setOnCreateSocket_l(_delegate, cb);
     _on_create_socket = std::move(cb);
+}
+
+void MediaPusher::setOnvifMode(bool onvif) {
+    _bOnvifMode = onvif;
 }
 
 } /* namespace mediakit */
