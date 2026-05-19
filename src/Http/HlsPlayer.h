@@ -107,11 +107,9 @@ private:
 
 private:
     struct UrlComp {
-        // url忽略？后面的参数  [AUTO-TRANSLATED:788784c3]
-        // url ignore? parameters after
-        // Ignore the parameters after the url?
+        // 比较完整 URL（包括参数），因为有些服务端的片段 URL 路径相同但 token 不同
         bool operator()(const std::string& __x, const std::string& __y) const {
-            return toolkit::split(__x,"?")[0] < toolkit::split(__y,"?")[0];
+            return __x < __y;
         }
     };
 
