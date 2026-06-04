@@ -23,6 +23,24 @@ using namespace toolkit;
 namespace mediakit {
 
 string Recorder::getRecordPath(Recorder::type type, const MediaTuple& tuple, const string &customized_path) {
+    // 如果customized_path是完整文件路径（如 D:/video.mp4），直接返回
+    if (!customized_path.empty()) {
+        // Windows 盘符路径（D:/ D:\）即使包含 :// 也是本地路径，优先判断
+        bool bWinDrive = customized_path.length() > 2 && customized_path[1] == ':'
+                         && (customized_path[2] == '/' || customized_path[2] == '\\');
+        bool bNetworkUrl = !bWinDrive && customized_path.find("://") != string::npos;
+        if (!bNetworkUrl) {
+            auto dotPos = customized_path.rfind('.');
+            auto slashPos = customized_path.rfind('/');
+            auto bslashPos = customized_path.rfind('\\');
+            size_t lastSep = 0;
+            if (slashPos != string::npos) lastSep = slashPos;
+            if (bslashPos != string::npos && bslashPos > lastSep) lastSep = bslashPos;
+            if (dotPos != string::npos && dotPos > lastSep && (lastSep == 0 || dotPos - lastSep > 1)) {
+                return customized_path;
+            }
+        }
+    }
     GET_CONFIG(bool, enableVhost, General::kEnableVhost);
     switch (type) {
         case Recorder::type_hls_fmp4:

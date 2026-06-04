@@ -42,10 +42,32 @@ MP4Recorder::~MP4Recorder() {
 
 void MP4Recorder::createFile() {
     closeFile();
-    auto date = getTimeStr("%Y-%m-%d");
-    auto file_name = date + "-" + getTimeStr("%H-%M-%S") + "-" + std::to_string(_file_index++) + ".mp4";
-    auto full_path = _info.folder + date + "/" + file_name;
-    auto full_path_tmp = _info.folder + date + "/." + file_name;
+    // 检测是否是完整文件路径（如 D:/video.mp4），直接使用该路径
+    bool bWinDrive = _info.folder.length() > 2 && _info.folder[1] == ':'
+                     && (_info.folder[2] == '/' || _info.folder[2] == '\\');
+    bool bNetworkUrl = !bWinDrive && _info.folder.find("://") != string::npos;
+    bool bDirectPath = false;
+    if (!bNetworkUrl && !_info.folder.empty()) {
+        auto dotPos = _info.folder.rfind('.');
+        auto slashPos = _info.folder.rfind('/');
+        auto bslashPos = _info.folder.rfind('\\');
+        size_t lastSep = 0;
+        if (slashPos != string::npos) lastSep = slashPos;
+        if (bslashPos != string::npos && bslashPos > lastSep) lastSep = bslashPos;
+        bDirectPath = dotPos != string::npos && dotPos > lastSep && (lastSep == 0 || dotPos - lastSep > 1);
+    }
+
+    string full_path, full_path_tmp, file_name, date;
+    if (bDirectPath) {
+        full_path = _info.folder;
+        full_path_tmp = _info.folder + ".tmp";
+        file_name = full_path.substr(full_path.rfind('/') + 1);
+    } else {
+        date = getTimeStr("%Y-%m-%d");
+        file_name = date + "-" + getTimeStr("%H-%M-%S") + "-" + std::to_string(_file_index++) + ".mp4";
+        full_path = _info.folder + date + "/" + file_name;
+        full_path_tmp = _info.folder + date + "/." + file_name;
+    }
 
     // ///record 业务逻辑//////  [AUTO-TRANSLATED:2e78931a]
     // ///record Business Logic//////
@@ -53,7 +75,11 @@ void MP4Recorder::createFile() {
     _info.file_name = file_name;
     _info.file_path = full_path;
     GET_CONFIG(string, appName, Record::kAppName);
-    _info.url = appName + "/" + _info.app + "/" + _info.stream + "/" + date + "/" + file_name;
+    if (bDirectPath) {
+        _info.url = file_name;
+    } else {
+        _info.url = appName + "/" + _info.app + "/" + _info.stream + "/" + date + "/" + file_name;
+    }
 
     try {
         _muxer = std::make_shared<MP4Muxer>();
