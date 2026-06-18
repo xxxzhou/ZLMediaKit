@@ -216,6 +216,12 @@ private:
     std::vector<RtcpContext::Ptr> _rtcp_context;
     // 用户自定义rtsp头
     StrCaseMap _custom_header;
+
+    // 检测音视频共享SSRC，自动重写RTP seq
+    bool _checked_shared_ssrc = false;
+    bool _shared_ssrc_detected = false;
+    bool _track_got_data[2] = {false, false};
+    uint16_t _rewrite_seq[2] = {0, 0};
 };
 
 } /* namespace mediakit */

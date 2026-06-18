@@ -628,11 +628,35 @@ void RtspPlayer::onRtpPacket(const char *data, size_t len) {
     int trackIdx = -1;
     uint8_t interleaved = data[1];
     if (interleaved % 2 == 0) {
-        CHECK(len > RtpPacket::kRtpHeaderSize + RtpPacket::kRtpTcpHeaderSize);
-        RtpHeader *header = (RtpHeader *)(data + RtpPacket::kRtpTcpHeaderSize);
-        trackIdx = getTrackIndexByPT(header->pt);
+        // TCP模式下用interleaved channel确定track，避免两个track的PT相同时用PT分发出错
+        // In TCP mode, use interleaved channel to determine track to avoid dispatch errors when two tracks have the same PT
+        if (_rtp_type == Rtsp::RTP_TCP) {
+            trackIdx = getTrackIndexByInterleaved(interleaved);
+        } else {
+            CHECK(len > RtpPacket::kRtpHeaderSize + RtpPacket::kRtpTcpHeaderSize);
+            RtpHeader *header = (RtpHeader *)(data + RtpPacket::kRtpTcpHeaderSize);
+            trackIdx = getTrackIndexByPT(header->pt);
+        }
         if (trackIdx == -1) {
             return;
+        }
+        // 检测音视频是否共享SSRC，如果共享则重写RTP seq使每个track内部连续
+        if (_sdp_track.size() >= 2) {
+            _track_got_data[trackIdx] = true;
+            if (!_checked_shared_ssrc && _track_got_data[0] && _track_got_data[1]) {
+                _checked_shared_ssrc = true;
+                if (getSSRC(0) == getSSRC(1)) {
+                    _shared_ssrc_detected = true;
+                    InfoL << "Detected shared SSRC(" << getSSRC(0) << ") between video/audio, enabling per-track seq rewrite";
+                }
+            }
+        }
+        if (_shared_ssrc_detected) {
+            // 重写RTP sequence number为per-track连续递增
+            auto rtp = (uint8_t *)data + RtpPacket::kRtpTcpHeaderSize;
+            uint16_t new_seq = _rewrite_seq[trackIdx]++;
+            rtp[2] = (new_seq >> 8) & 0xFF;
+            rtp[3] = new_seq & 0xFF;
         }
         handleOneRtp(
             trackIdx, _sdp_track[trackIdx]->_type, _sdp_track[trackIdx]->_samplerate, (uint8_t *)data + RtpPacket::kRtpTcpHeaderSize,
