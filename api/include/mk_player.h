@@ -201,6 +201,14 @@ API_EXPORT int API_CALL mk_player_progress_pos(mk_player ctx);
  */
 API_EXPORT float API_CALL mk_player_loss_rate(mk_player ctx, int track_type);
 
+/**
+ * 设置VOD模式(RTSP源有效)
+ * VOD模式下禁用NTP跳变矫正,避免seek后RTP跳变被当网络抖动吃掉
+ * @param ctx 对象指针
+ * @param vod 1:VOD模式(禁用NTP矫正), 0:直播模式(默认,启用NTP矫正)
+ */
+API_EXPORT void API_CALL mk_player_set_vod_mode(mk_player ctx, int vod);
+
 #ifdef __cplusplus
 }
 #endif

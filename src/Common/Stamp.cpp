@@ -401,6 +401,11 @@ uint64_t NtpStamp::getNtpStampUS(uint32_t rtp_stamp, uint32_t sample_rate) {
         // 不明原因的时间戳大幅跳跃，直接返回上次值  [AUTO-TRANSLATED:952b769c]
         // The timestamp jumps significantly for unknown reasons, directly return the last value
         WarnL << "rtp stamp abnormal increased:" << _last_rtp_stamp << " -> " << rtp_stamp;
+        if (_vod_mode) {
+            // VOD模式: seek导致的合法跳变,接受新值
+            update(rtp_stamp, _last_ntp_stamp_us + diff_us);
+            return _last_ntp_stamp_us;
+        }
         update(rtp_stamp, _last_ntp_stamp_us);
         return _last_ntp_stamp_us;
     }
@@ -427,6 +432,11 @@ uint64_t NtpStamp::getNtpStampUS(uint32_t rtp_stamp, uint32_t sample_rate) {
     // 不明原因的时间戳回退，直接返回上次值  [AUTO-TRANSLATED:c5105c14]
     // Timestamp rollback for unknown reasons, return the last value directly
     WarnL << "rtp stamp abnormal reduced:" << _last_rtp_stamp << " -> " << rtp_stamp;
+    if (_vod_mode) {
+        // VOD模式: seek导致的合法跳变,接受新值
+        update(rtp_stamp, _last_ntp_stamp_us - diff_us);
+        return _last_ntp_stamp_us;
+    }
     update(rtp_stamp, _last_ntp_stamp_us);
     return _last_ntp_stamp_us;
 }

@@ -183,6 +183,8 @@ class NtpStamp {
 public:
     void setNtpStamp(uint32_t rtp_stamp, uint64_t ntp_stamp_ms);
     uint64_t getNtpStamp(uint32_t rtp_stamp, uint32_t sample_rate);
+    // VOD模式: seek后RTP跳变是合法的,接受跳变而不是返回旧值
+    void setVodMode(bool vod) { _vod_mode = vod; }
 
 private:
     void update(uint32_t rtp_stamp, uint64_t ntp_stamp_us);
@@ -191,6 +193,7 @@ private:
 private:
     uint32_t _last_rtp_stamp = 0;
     uint64_t _last_ntp_stamp_us = 0;
+    bool _vod_mode = false;
 };
 
 }//namespace mediakit
