@@ -256,10 +256,6 @@ public:
     RtpPacket::Ptr inputRtp(TrackType type, int sample_rate, uint8_t *ptr, size_t len);
     void setNtpStamp(uint32_t rtp_stamp, uint64_t ntp_stamp_ms);
     void setPayloadType(uint8_t pt);
-    // 设置VOD模式: seek后RTP跳变是合法的,NtpStamp接受跳变
-    void setVodMode(bool vod) {
-        _ntp_stamp.setVodMode(vod);
-    }
 
 protected:
     virtual void onRtpSorted(RtpPacket::Ptr rtp) {}
@@ -353,13 +349,6 @@ public:
     void setPayloadType(int index, uint8_t pt){
         assert(index < kCount && index >= 0);
         _track[index].setPayloadType(pt);
-    }
-
-    // 设置VOD模式: 所有track禁用NTP矫正
-    void setVodMode(bool vod) {
-        for (auto &track : _track) {
-            track.setVodMode(vod);
-        }
     }
 
     void clear() {

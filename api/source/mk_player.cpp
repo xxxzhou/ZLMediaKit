@@ -230,14 +230,3 @@ API_EXPORT float API_CALL mk_player_loss_rate(mk_player ctx, int track_type) {
     return obj->getPacketLossRate((TrackType)track_type);
 }
 
-API_EXPORT void API_CALL mk_player_set_vod_mode(mk_player ctx, int vod) {
-    assert(ctx);
-    MediaPlayerForC &obj = **((MediaPlayerForC::Ptr *)ctx);
-    auto player = obj.getPlayer();
-    // MediaPlayer的_delegate才是真正的RtspPlayerImp
-    auto rtsp = std::dynamic_pointer_cast<RtspPlayer>(player->getDelegate());
-    if (rtsp) {
-        rtsp->setVodMode(vod != 0);
-    }
-}
-

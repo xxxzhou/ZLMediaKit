@@ -39,8 +39,6 @@ public:
     void seekTo(uint32_t pos) override;  // 新增
     void teardown() override;
     float getPacketLossRate(TrackType type) const override;
-    // 设置VOD模式: vod=true时禁用NTP矫正,避免seek后RTP跳变被吃掉
-    void setVodMode(bool vod) { RtpReceiver::setVodMode(vod); }
 
     size_t getRecvSpeed() override;
     size_t getRecvTotalBytes() override;

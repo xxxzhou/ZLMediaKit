@@ -217,7 +217,6 @@ void RtspPlayer::handleResDESCRIBE(const Parser &parser) {
     // 解析sdp  [AUTO-TRANSLATED:ed3f07fe]
     // Parse SDP
     SdpParser sdpParser(parser.content());
-    InfoL << "SDP content:\n" << parser.content();
 
     // 保存 range 信息（从第一个 track 获取）
     auto tracks = sdpParser.getAvailableTrack();
@@ -232,10 +231,6 @@ void RtspPlayer::handleResDESCRIBE(const Parser &parser) {
             _range_start_str = tracks[0]->_range_start_str;
             _range_end_str = tracks[0]->_range_end_str;
         }
-    }
-    // SDP有a=range说明是VOD流,立即设VOD模式让NtpStamp接受RTP跳变
-    if (!_range_type.empty()) {
-        setVodMode(true);
     }
     _control_url = sdpParser.getControlUrl(_content_base);
 
