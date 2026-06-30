@@ -171,7 +171,7 @@ void HlsPlayer::fetchSegment() {
         // 提前0.5秒下载好，支持点播文件控制下载速度: #2628  [AUTO-TRANSLATED:82247326]
         // Download 0.5 seconds in advance to support on-demand file download speed control: #2628
         // Download 0.5 seconds in advance to support video-on-demand files to control download speed: #2628
-        auto delay = duration - 0.5 - ticker.elapsedTime() / 1000.0f;
+        auto delay = (duration - 0.5f - ticker.elapsedTime() / 1000.0f) / strong_self->_speed;
         if (delay > 2.0) {
             // 提前1秒下载  [AUTO-TRANSLATED:852349aa]
             // Download 1 second in advance
@@ -548,4 +548,10 @@ size_t HlsPlayerImp::getRecvSpeed() {
 size_t HlsPlayerImp::getRecvTotalBytes() {
      return _recvtotalbytes;
 }
+
+void HlsPlayerImp::speed(float speed) {
+    TraceL << "HlsPlayerImp::speed:" << speed;
+    HlsPlayer::speed(speed);
+}
+
 }//namespace mediakit

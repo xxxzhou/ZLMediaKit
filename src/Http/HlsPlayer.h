@@ -58,7 +58,7 @@ public:
      * start play
      * Start playing
      * start play
-     
+
      * [AUTO-TRANSLATED:03d41cf7]
      */
     void play(const std::string &url) override;
@@ -68,10 +68,12 @@ public:
      * stop play
      * Stop playing
      * stop play
-     
+
      * [AUTO-TRANSLATED:88068dac]
      */
     void teardown() override;
+
+    void speed(float speed) override { _speed = speed > 0.1f ? speed : 0.1f; }
 
     size_t getRecvSpeed() override;
     size_t getRecvTotalBytes() override;
@@ -128,6 +130,7 @@ private:
     int _timeout_multiple = MIN_TIMEOUT_MULTIPLE;
     int _try_fetch_index_times = 0;
     int _ts_download_failed_count = 0;
+    float _speed = 1.0f;
     // RFC 8216 reload interval depends on whether the last media sequence
     // changed. We intentionally keep this lightweight and only track the
     // sequence number for live playlist refresh timing.
@@ -143,6 +146,7 @@ public:
     HlsPlayerImp(const toolkit::EventPoller::Ptr &poller = nullptr);
     size_t getRecvSpeed() override;
     size_t getRecvTotalBytes() override;
+    void speed(float speed) override;
 
 private:
     //// HlsPlayer override////
