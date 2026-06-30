@@ -34,6 +34,7 @@ public:
     void resetTracks() override { ((MediaSink &)_delegate).resetTracks(); }
     std::vector<Track::Ptr> getTracks(bool ready = true) const override { return _delegate.getTracks(ready); }
     void pushTask(std::function<void()> task);
+    void speed(float speed);
 
 private:
     void onTick();
@@ -47,6 +48,7 @@ private:
     toolkit::Timer::Ptr _timer;
     MediaSinkDelegate _delegate;
     std::deque<std::pair<int64_t, std::function<void()> > > _frame_cache;
+    float _speed = 1.0f;
 };
 
 class HlsPlayer: public  HttpClientImp, public PlayerBase, public HlsParser {

@@ -434,7 +434,7 @@ bool HlsDemuxer::inputFrame(const Frame::Ptr &frame) {
 }
 
 int64_t HlsDemuxer::getPlayPosition() {
-    return _ticker.elapsedTime() + _ticker_offset;
+    return (int64_t)(_ticker.elapsedTime() * _speed) + _ticker_offset;
 }
 
 int64_t HlsDemuxer::getBufferMS() {
@@ -447,6 +447,13 @@ int64_t HlsDemuxer::getBufferMS() {
 void HlsDemuxer::setPlayPosition(int64_t pos) {
     _ticker.resetTime();
     _ticker_offset = pos;
+}
+
+void HlsDemuxer::speed(float speed) {
+    // 切speed前先用旧speed算出当前播放位置,重置ticker,避免位置跳变
+    _ticker_offset = getPlayPosition();
+    _ticker.resetTime();
+    _speed = speed > 0.1f ? speed : 0.1f;
 }
 
 void HlsDemuxer::onTick() {
@@ -552,6 +559,9 @@ size_t HlsPlayerImp::getRecvTotalBytes() {
 void HlsPlayerImp::speed(float speed) {
     TraceL << "HlsPlayerImp::speed:" << speed;
     HlsPlayer::speed(speed);
+    if (_demuxer) {
+        static_pointer_cast<HlsDemuxer>(_demuxer)->speed(speed);
+    }
 }
 
 }//namespace mediakit
